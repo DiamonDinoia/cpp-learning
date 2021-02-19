@@ -6,3 +6,4 @@ set(CMAKE_CXX_STANDARD 17)
 
 add_subdirectory(floating-points)
 add_subdirectory(compilation-define-test)
+add_subdirectory(sys-calls)
