@@ -33,7 +33,7 @@ static std::string toBinFloat(const float &x) {
   std::stringstream ss;
   float_cast d1 = {.f = x};
   ss << std::bitset<1>(d1.parts.sign) << '|';
-  ss << std::bitset<8>(d1.parts.exponent) << '|';
+  ss << std::bitset<8>(d1.parts.exponent - 127) << '|';
   ss << std::bitset<23>(d1.parts.mantissa);
   return ss.str();
 }
@@ -55,6 +55,12 @@ const auto b = 1;
 using namespace std;
 
 int main(const int argc, const char *argv[]) {
+  for (auto n = 1u; n < 8192u; n <<= 1u) {
+    const float value = 1. / n;
+    cout << n << '\t' << toBinFloat(value) << '\t' << toIntFloat(value)
+         << '\t' << value << endl;
+  }
+
   for (auto n = 1u; n < 4094u; n <<= 1u) {
     cout << "n " << n << endl;
     const float h = 1. / n;
@@ -62,15 +68,13 @@ int main(const int argc, const char *argv[]) {
     map<unsigned int, unsigned int> exponents;
     map<unsigned int, unsigned int> mantissa;
     for (auto i = 0; i < n; ++i) {
-      const float value = a + h * i;
+      const float value = (a + h * i)*n;
       float_cast d1 = {.f = value};
       const auto exp = d1.parts.exponent;
       mantissa[d1.parts.mantissa]++;
       exponents[exp]++;
-      //    cout << i << '\t' << toBinFloat(value) << '\t' << toIntFloat(value)
-      //    << '\t'
-      //         << value << endl;
-      //
+      cout << i << '\t' << toBinFloat(value) << '\t' << toIntFloat(value)
+           << '\t' << value << endl;
     }
     //  for (int i = 0; i < n; ++i) {
     //    if (exponents[i] != 0)
