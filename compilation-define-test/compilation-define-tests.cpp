@@ -10,7 +10,7 @@ using namespace std;
 #include "print_const.h"
 
 int main() {
-  print_const();
-  print_const_value();
-  return 0;
+    print_const();
+    print_const_value();
+    return 0;
 }

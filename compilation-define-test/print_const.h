@@ -6,12 +6,8 @@
 #define CPP_LEARNING_COMPILATION_DEFINE_TEST_PRINT_CONST_H_
 
 #ifndef VALUE
-void print_const() {
-  cout << "no const" << endl;
-}
+void print_const() { cout << "no const" << endl; }
 #else
-void print_const_value() {
-  cout << VALUE << endl;
-}
+void print_const_value() { cout << VALUE << endl; }
 #endif
-#endif // CPP_LEARNING_COMPILATION_DEFINE_TEST_PRINT_CONST_H_
+#endif  // CPP_LEARNING_COMPILATION_DEFINE_TEST_PRINT_CONST_H_
