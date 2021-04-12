@@ -150,13 +150,13 @@ int main() {
     size_t cache_sizes[32];
     int num_data_caches = i386_cpuid_caches(cache_sizes);
 
-    int latencies[1 << 20];
+    int latencies[1048576];
     memset(latencies, 0, sizeof(latencies));
 
     int empty_cycles = 0;
 
     int i;
-    int attempts = 1000000;
+    int attempts = 100000000;
     for (i = 0; i < attempts;
          i++) {  // measure how much overhead we have for counting cyscles
         int32_t cycles_used, edx, temp1, temp2;

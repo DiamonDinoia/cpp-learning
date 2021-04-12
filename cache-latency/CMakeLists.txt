@@ -3,7 +3,7 @@ project(cache)
 
 set(CMAKE_C_STANDARD 11)
 
-#set(CMAKE_C_COMPILER gcc-10)
+set(CMAKE_C_COMPILER gcc-10)
 
 add_compile_options(-O0)
 
