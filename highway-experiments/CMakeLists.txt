@@ -6,9 +6,9 @@ if (CMAKE_BUILD_TYPE MATCHES Debug)
     add_compile_options(-Wall -Wextra -pedantic)
 endif ()
 if (CMAKE_BUILD_TYPE MATCHES Release)
-    add_compile_options(-ffp-contract=fast )
+    add_compile_options(-ffp-contract=fast)
     add_compile_options(-freciprocal-math -fmerge-all-constants -fno-math-errno)
-    add_compile_options(-march=native)
+#    add_compile_options(-march=native)
 endif ()
 
 
