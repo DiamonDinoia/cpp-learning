@@ -40,14 +40,13 @@ void MulAddLoop(const float* HWY_RESTRICT mul_array, const float* HWY_RESTRICT a
  */
 template <typename T>
 inline constexpr T fast_logfV(T a) {
-    hn::ScalableTag<float> fl;
-    hn::ScalableTag<std::int32_t> il;
+    constexpr hn::ScalableTag<float> fl;
+    constexpr hn::ScalableTag<std::int32_t> il;
     decltype(hn::Undefined(fl)) i, m, r, s, t;
     decltype(hn::Undefined(il)) e;
     hn::Set(fl, 1.19209290e-7f);
-    // print a
-    auto mask = a < hn::Set(fl, 1.175494351e-38f);
-    a = hn::IfThenElse(mask, hn::Mul(a, hn::Set(fl, 8388608.0f)), a);
+    auto mask = a < hn::Set(fl, 1.175494351e-38f);                     // 0x1.0p-126
+    a = hn::IfThenElse(mask, hn::Mul(a, hn::Set(fl, 8388608.0f)), a);  // 0x1.0p+23
     i = hn::IfThenElseZero(mask, hn::Sub(i, hn::Set(fl, 23.0f)));
     e = hn::Sub(hn::BitCast(il, a), hn::BitCast(il, hn::Set(fl, 0.666666667f)));
     e = hn::And(e, hn::Set(il, 0xff800000));
@@ -66,13 +65,13 @@ inline constexpr T fast_logfV(T a) {
     r = hn::MulSub(r, s, hn::Set(fl, 0.249996200f));  // -0x1.fffe02p-3
     r = hn::MulAdd(t, m, r);
     r = hn::MulAdd(r, m, hn::Set(fl, 0.333331972f));  //  0x1.5554fap-2
-    r = hn::MulSub(r, m, hn::Set(fl, 0.500000000f));
+    r = hn::MulSub(r, m, hn::Set(fl, 0.500000000f));  // -0x1.000000p-1
     r = hn::MulAdd(r, s, m);
-    r = hn::MulAdd(i, hn::Set(fl, 0.693147182f), r);  //  0x1.62e430p-1
+    r = hn::MulAdd(i, hn::Set(fl, 0.693147182f), r);  //  0x1.62e430p-1 // log(2)
     mask = hn::Or(a <= hn::Zero(fl), a >= hn::Set(fl, INFINITY));
-    r = hn::IfThenElse(mask, hn::Add(a, a), r);
-    r = hn::IfThenElse(hn::And(mask, a < hn::Zero(fl)), hn::Set(fl, INFINITY - INFINITY), r);
-    r = hn::IfThenElse(hn::And(mask, a == hn::Zero(fl)), hn::Set(fl, -INFINITY), r);
+    r = hn::IfThenElse(mask, hn::Add(a, a), r);  // silence NaNs if necessary
+    r = hn::IfThenElse(hn::And(mask, a < hn::Zero(fl)), hn::Set(fl, INFINITY - INFINITY), r);  //  NaN
+    r = hn::IfThenElse(hn::And(mask, a == hn::Zero(fl)), hn::Set(fl, -INFINITY), r);           // -Infinty
     return r;
 }
 
@@ -149,7 +148,7 @@ namespace {
 
 static constexpr auto size = 1 << 22;
 static constexpr auto iterations = 1000;
-static constexpr auto threads = 64;
+static constexpr auto threads = 1;
 
 alignas(32) std::array<float, size> mul_array;
 alignas(32) std::array<float, size> add_array;
@@ -188,11 +187,6 @@ inline constexpr float fast_logf(float a) {
         a = a * 8388608.0f;      // 0x1.0p+23
         i = -23.0f;
     }
-    //    std::cerr << "a: " << a << std::endl;
-    // print a and i
-    // std::cerr << "i: " << i << std::endl;
-
-    //    std::cerr << "a: " << a << " i: " << i << std::endl;
     e = (std::bit_cast<int32_t>(a) - std::bit_cast<int32_t>(0.666666667f)) & 0xff800000;
 
     m = std::bit_cast<float>(std::bit_cast<int32_t>(a) - e);
@@ -208,7 +202,6 @@ inline constexpr float fast_logf(float a) {
     t = 0.140869141f;                   //  0x1.208000p-3
     r = std::fma(r, s, -0.121483512f);  // -0x1.f198b2p-4
     t = std::fma(t, s, 0.139814854f);   //  0x1.1e5740p-3
-    // std::cerr << "t: " << t << std::endl;
     r = std::fma(r, s, -0.166846126f);  // -0x1.55b36cp-3
     t = std::fma(t, s, 0.200120345f);   //  0x1.99d8b2p-3
     r = std::fma(r, s, -0.249996200f);  // -0x1.fffe02p-3
