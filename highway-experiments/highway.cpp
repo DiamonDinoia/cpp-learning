@@ -2,7 +2,7 @@
 #undef HWY_TARGET_INCLUDE
 #define HWY_TARGET_INCLUDE "highway.cpp"  // this file
 #include <benchmark/benchmark.h>
-#include <hwy/foreach_target.h>           // must come before highway.h
+#include <hwy/foreach_target.h>  // must come before highway.h
 #include <hwy/highway.h>
 
 #include <array>
@@ -14,7 +14,7 @@
 #include <random>
 #include <valarray>
 
-HWY_BEFORE_NAMESPACE();    // required if not using HWY_ATTR
+HWY_BEFORE_NAMESPACE();  // required if not using HWY_ATTR
 namespace project {
 namespace HWY_NAMESPACE {  // required: unique per target
 
@@ -149,7 +149,7 @@ namespace {
 
 static constexpr auto size = 1 << 22;
 static constexpr auto iterations = 1000;
-static constexpr auto threads = 16;
+static constexpr auto threads = 64;
 
 alignas(32) std::array<float, size> mul_array;
 alignas(32) std::array<float, size> add_array;
@@ -203,20 +203,20 @@ inline constexpr float fast_logf(float a) {
     s = m * m;
 
     /* Compute log1p(m) for m in [-1/3, 1/3] */
-    r = -0.130310059f;              // -0x1.0ae000p-3
+    r = -0.130310059f;  // -0x1.0ae000p-3
 
-    t = 0.140869141f;               //  0x1.208000p-3
+    t = 0.140869141f;                   //  0x1.208000p-3
     r = std::fma(r, s, -0.121483512f);  // -0x1.f198b2p-4
     t = std::fma(t, s, 0.139814854f);   //  0x1.1e5740p-3
     // std::cerr << "t: " << t << std::endl;
-    r = std::fma(r, s, -0.166846126f);              // -0x1.55b36cp-3
-    t = std::fma(t, s, 0.200120345f);               //  0x1.99d8b2p-3
-    r = std::fma(r, s, -0.249996200f);              // -0x1.fffe02p-3
+    r = std::fma(r, s, -0.166846126f);  // -0x1.55b36cp-3
+    t = std::fma(t, s, 0.200120345f);   //  0x1.99d8b2p-3
+    r = std::fma(r, s, -0.249996200f);  // -0x1.fffe02p-3
     r = std::fma(t, m, r);
-    r = std::fma(r, m, 0.333331972f);               //  0x1.5554fap-2
-    r = std::fma(r, m, -0.500000000f);              // -0x1.000000p-1
+    r = std::fma(r, m, 0.333331972f);   //  0x1.5554fap-2
+    r = std::fma(r, m, -0.500000000f);  // -0x1.000000p-1
     r = std::fma(r, s, m);
-    r = std::fma(i, 0.693147182f, r);               //  0x1.62e430p-1 // log(2)
+    r = std::fma(i, 0.693147182f, r);  //  0x1.62e430p-1 // log(2)
     if (!((a > 0.0f) && (a < INFINITY))) {
         r = a + a;                              // silence NaNs if necessary
         if (a < 0.0f) r = INFINITY - INFINITY;  //  NaN
