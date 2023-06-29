@@ -33,8 +33,5 @@ if(Eigen_ADDED)
 endif()
 
 
-#include_directories(lib/eigen)
-add_compile_options(-fopt-info-vec-missed)
-
 add_executable(eigen_tests eigen-experiments.cpp)
 target_link_libraries(eigen_tests Eigen)

@@ -33,3 +33,5 @@
 
 # build folder
 ./build/
+./cmake-build-*/
+.venv/
