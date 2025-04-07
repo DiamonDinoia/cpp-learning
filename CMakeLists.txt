@@ -9,9 +9,9 @@ set(DCMAKE_RULE_MESSAGES OFF)
 set(CMAKE_CXX_STANDARD 20)
 
 # version of the libraries to be used
-set(CPM_DOWNLOAD_VERSION 0.38.1)
+set(CPM_DOWNLOAD_VERSION 0.40.8)
 set(EIGEN_DOWNLOAD_VERSION 3.4.0)
-set(HIGHWAY_DOWNLOAD_VERSION 1.0.4)
+set(HIGHWAY_DOWNLOAD_VERSION 1.2.0)
 
 
 if (CPM_SOURCE_CACHE)
@@ -38,3 +38,4 @@ add_subdirectory(sys-calls)
 add_subdirectory(cache-latency)
 add_subdirectory(eigen-experiments)
 add_subdirectory(class-experiments)
+add_subdirectory(xsimd)
