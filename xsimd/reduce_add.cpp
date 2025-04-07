@@ -34,15 +34,15 @@ template<typename T>  auto xsimd_to_array(const T &vec) noexcept {
 int main(const int argc, const char* argv[])
 {
     using batch_type = xs::batch<double>;
-    constexpr auto size = xs::batch<double>::size;
+    constexpr auto size = batch_type::size;
     std::array<double, size*2> data{};
     std::default_random_engine rng{};
     std::uniform_real_distribution<double> dist(0.0, 1.0);
     for (auto& d : data) {
         d = dist(rng);
     }
-    auto a = xs::load_unaligned(data.data());
-    auto b = xs::load_unaligned(data.data() + size);
+    auto a = batch_type::load_unaligned(data.data());
+    auto b = batch_type::load_unaligned(data.data() + size);
     std::array<double, 2> out{0};
     ankerl::nanobench::Bench().run("add+store", [&] {
         const auto res = a + b;
