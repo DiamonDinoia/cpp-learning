@@ -36,16 +36,36 @@ auto xsimd_to_array(const T& vec) noexcept {
 
 template <int... i>
 constexpr auto hsum(const auto& v, auto& t, std::integer_sequence<int, i...>) noexcept {
-    t[0] = (v.get(i * 2) + ...);
-    t[1] = (v.get(i * 2 + 1) + ...);
+    const auto vec = xsimd_to_array(v);
+    t[0] = (vec[i * 2] + ...);
+    t[1] = (vec[i * 2 + 1] + ...);
 }
 
 template <int... i>
 constexpr auto hsum(const auto v, std::integer_sequence<int, i...>) noexcept {
-    return (v.get(i) + ...);
+    return (v.data[i] + ...);
 }
-constexpr auto hsum(const auto v) noexcept {
-    return hsum(v, std::make_integer_sequence<int, decltype(v)::size>{});
+constexpr auto hsum(const auto v) noexcept { return hsum(v, std::make_integer_sequence<int, decltype(v)::size>{}); }
+
+template <int... i>
+constexpr auto shsum(const auto& v, auto& t, std::integer_sequence<int, i...>) noexcept {
+    const auto low_high = xsimd::swizzle(v, deinterleave_mask<typename std::decay_t<decltype(v)>::arch_type, double>);
+    t[0] = (low_high.data[i] + ...);
+    t[1] = (low_high.data[i + sizeof...(i)] + ...);
+}
+
+template <typename Batch>
+constexpr auto complex_hadd(const Batch& res) {
+    constexpr std::size_t size = Batch::size;
+    if constexpr (size == 2) {
+        return res;
+    } else {
+        using half_t = xsimd::make_sized_batch_t<typename Batch::value_type, size / 2>;
+        static_assert(!std::is_void_v<half_t>, "xsimd does not support this batch size.");
+        alignas(Batch::arch_type::alignment()) std::array<half_t, 2> out{};
+        res.store_aligned(out.data());
+        return complex_hadd(out[0]+out[1]);
+    }
 }
 
 int main(const int argc, const char* argv[]) {
@@ -59,16 +79,14 @@ int main(const int argc, const char* argv[]) {
     }
     auto a = batch_type::load_unaligned(data.data());
     auto b = batch_type::load_unaligned(data.data() + size);
-    std::array<double, 2> out{0};
+    alignas(batch_type::arch_type::alignment()) std::array<double, 2> out{};
     ankerl::nanobench::Bench().run("add+store", [&] {
         const auto res = a + b;
         for (size_t i = 0; i < size; i += 2) {
-            out[0] += res.get(i);
-            out[1] += res.get(i + 1);
+            out[0] += res.data[i];
+            out[1] += res.data[i+1];
         }
     });
-    out[0]  = 0;
-    out[1]  = 0;
     const auto res = a + b;
     for (size_t i = 0; i < size; i += 2) {
         out[0] += res.get(i);
@@ -84,6 +102,13 @@ int main(const int argc, const char* argv[]) {
     if (argc > 1) {
         std::cout << "Result: " << out[0] << ", " << out[1] << "\n";
     }
+    ankerl::nanobench::Bench().run("shsum", [&] constexpr noexcept {
+        shsum((a + b), out, std::make_integer_sequence<int, size / 2>{});
+        ankerl::nanobench::doNotOptimizeAway(out);
+    });
+    if (argc > 1) {
+        std::cout << "Result: " << out[0] << ", " << out[1] << "\n";
+    }
     ankerl::nanobench::Bench().run("reduce_add", [&] constexpr noexcept {
         const auto res_real = xsimd::shuffle(a, b, select_even_mask<typename batch_type::arch_type, double>);
         const auto res_imag = xsimd::shuffle(a, b, select_odd_mask<typename batch_type::arch_type, double>);
@@ -94,54 +119,12 @@ int main(const int argc, const char* argv[]) {
     if (argc > 1) {
         std::cout << "Result: " << out[0] << ", " << out[1] << "\n";
     }
-    ankerl::nanobench::Bench().run("union pun", [&] constexpr noexcept {
-        const auto res = a + b;
-        const auto low_high = xsimd::swizzle(res, deinterleave_mask<typename batch_type::arch_type, double>);
-        using half = xsimd::make_sized_batch_t<double, size / 2>;
-        static_assert(!std::is_void_v<half>);
-        union {
-            struct {
-                half low;
-                half high;
-            } vec;
-            batch_type all;
-        } pun = {.all = low_high};
-        out[0] = hsum(pun.vec.low);
-        out[1] = hsum(pun.vec.low);
-        ankerl::nanobench::doNotOptimizeAway(out);
+    ankerl::nanobench::Bench().run("complex hsum", [&] constexpr noexcept {
+        const auto vec = complex_hadd(a + b);
+        vec.store_aligned(out.data());
     });
     if (argc > 1) {
         std::cout << "Result: " << out[0] << ", " << out[1] << "\n";
     }
-#ifdef AVX512F
-    ankerl::nanobench::Bench().run("double union pun", [&] constexpr noexcept {
-        const auto res = a + b;
-        using half = xsimd::make_sized_batch_t<double, size / 2>;
-        static_assert(!std::is_void_v<half>);
-        union {
-            struct {
-                half low;
-                half high;
-            } vec;
-            batch_type all;
-        } pun = {.all = res};
-        const auto res2 = pun.vec.low + pun.vec.high;
-        const auto low_high = xsimd::swizzle(res2, deinterleave_mask<typename half::arch_type, double>);
-        using quarter = xsimd::make_sized_batch_t<double, size / 4>;
-        static_assert(!std::is_void_v<quarter>);
-        union {
-            struct {
-                quarter low;
-                quarter high;
-            } vec;
-            half all;
-        } pun2 = {.all = low_high};
-        out[0] = xsimd::reduce_add(pun2.vec.low);
-        out[1] = xsimd::reduce_add(pun2.vec.high);
-        ankerl::nanobench::doNotOptimizeAway(out);
-    });
-    if (argc > 1) {
-        std::cout << "Result: " << out[0] << ", " << out[1] << "\n";
-    }
-#endif
+
 }
