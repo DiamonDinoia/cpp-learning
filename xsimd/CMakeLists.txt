@@ -2,7 +2,7 @@
 CPMAddPackage("gh:xtensor-stack/xsimd#13.2.0")
 CPMAddPackage("gh:martinus/nanobench@4.3.11")
 
-add_compile_options(-march=native)
+add_compile_options(-march=native -ftree-vectorize -fcx-limited-range)
 set(CMAKE_CXX_STANDARD 20)
 
 add_executable(reduce_add reduce_add.cpp)
