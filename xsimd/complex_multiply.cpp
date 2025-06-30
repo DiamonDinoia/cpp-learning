@@ -81,7 +81,6 @@ void benchmark_swizzle(std::size_t N, vector_t& a, vector_t& b, vector_t& out, a
     using batch_t = xsimd::batch<double>;
     using arch = batch_t::arch_type;
     constexpr std::size_t S = batch_t::size;  // # doubles per batch
-    constexpr std::size_t D = 2 * S;          // stride in doubles per complex-batch
 
     // — compile-time indexers for swizzle —
     struct real_dup {
@@ -119,11 +118,8 @@ void benchmark_swizzle(std::size_t N, vector_t& a, vector_t& b, vector_t& out, a
             const auto odd = a_im * b_sw;
             const auto prod = a_re * vb;
 
-            // even lanes: prod+odd, odd lanes: prod-odd
-            const auto sum = prod + odd;
-            const auto diff = prod - odd;
             const auto mask = xsimd::make_batch_bool_constant<double, arch, even_lane>();
-            const auto res = xsimd::select(mask, diff, sum);
+            const auto res = prod + xsimd::select(mask, xsimd::neg(odd), odd);
 
             // store back interleaved
             res.store_aligned(reinterpret_cast<double*>(out.data()) + i);
