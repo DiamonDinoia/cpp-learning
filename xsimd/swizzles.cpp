@@ -289,7 +289,7 @@ void test_correctness() {
         for (int i = 0; i < 4; ++i) assert(almost_equal(outd1[i], outd2[i]));
     }
 
-    std::cout << "✅ correctness OK\n";
+    std::cout << "correctness OK\n";
 }
 
 void test_special_pd_cases() {
@@ -337,7 +337,7 @@ void test_special_pd_cases() {
     store4d(o0, r0);
     store4d(o1, r1);
     for (int i = 0; i < 4; ++i) assert(almost_equal(o0[i], o1[i]));
-    std::cout << "✅ special PD cases passed\n";
+    std::cout << "special PD cases passed\n";
 }
 
 void test_special_ps_cases() {
@@ -386,7 +386,7 @@ void test_special_ps_cases() {
     store8f(o1, r1);
     for (int i = 0; i < 8; ++i) assert(almost_equal(o0[i], o1[i]));
 
-    std::cout << "✅ special PS cases passed\n";
+    std::cout << "special PS cases passed\n";
 }
 
 // Benchmark
