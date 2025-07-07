@@ -405,20 +405,42 @@ void run_bench() {
         ankerl::nanobench::doNotOptimizeAway(r);
     });
 
-    bench.run("float compile-time pairdup-all [orig]", [&] {
+    // new: duplicate+permute low half
+    bench.run("float compile-time dup+permute low [orig]", [&] {
+        auto r = swizzle_const_orig<2, 1, 0, 3, 2, 1, 0, 3>(v8);
+        ankerl::nanobench::doNotOptimizeAway(r);
+    });
+    bench.run("float compile-time dup+permute low [opt]", [&] {
+        auto r = swizzle_const_opt<2, 1, 0, 3, 2, 1, 0, 3>(v8);
+        ankerl::nanobench::doNotOptimizeAway(r);
+    });
+
+    // new: duplicate+permute high half
+    bench.run("float compile-time dup+permute high [orig]", [&] {
+        auto r = swizzle_const_orig<7, 5, 6, 4, 7, 5, 6, 4>(v8);
+        ankerl::nanobench::doNotOptimizeAway(r);
+    });
+    bench.run("float compile-time dup+permute high [opt]", [&] {
+        auto r = swizzle_const_opt<7, 5, 6, 4, 7, 5, 6, 4>(v8);
+        ankerl::nanobench::doNotOptimizeAway(r);
+    });
+
+    // new: pairwise dup low-only
+    bench.run("float compile-time pairdup-low [orig]", [&] {
         auto r = swizzle_const_orig<0, 0, 1, 1, 2, 2, 3, 3>(v8);
         ankerl::nanobench::doNotOptimizeAway(r);
     });
-    bench.run("float compile-time pairdup-all [opt]", [&] {
+    bench.run("float compile-time pairdup-low [opt]", [&] {
         auto r = swizzle_const_opt<0, 0, 1, 1, 2, 2, 3, 3>(v8);
         ankerl::nanobench::doNotOptimizeAway(r);
     });
 
-    bench.run("float compile-time pairdup-high-only [orig]", [&] {
+    // new: pairwise dup high-only
+    bench.run("float compile-time pairdup-high [orig]", [&] {
         auto r = swizzle_const_orig<4, 4, 5, 5, 6, 6, 7, 7>(v8);
         ankerl::nanobench::doNotOptimizeAway(r);
     });
-    bench.run("float compile-time pairdup-high-only [opt]", [&] {
+    bench.run("float compile-time pairdup-high [opt]", [&] {
         auto r = swizzle_const_opt<4, 4, 5, 5, 6, 6, 7, 7>(v8);
         ankerl::nanobench::doNotOptimizeAway(r);
     });
@@ -466,24 +488,6 @@ void run_bench() {
     });
     bench.run("double compile-time swap-re-im [opt]", [&] {
         auto r = swizzle_const_opt<1, 0, 3, 2>(v4);
-        ankerl::nanobench::doNotOptimizeAway(r);
-    });
-
-    bench.run("double compile-time pairdup-low [orig]", [&] {
-        auto r = swizzle_const_orig<0, 0, 1, 1>(v4);
-        ankerl::nanobench::doNotOptimizeAway(r);
-    });
-    bench.run("double compile-time pairdup-low [opt]", [&] {
-        auto r = swizzle_const_opt<0, 0, 1, 1>(v4);
-        ankerl::nanobench::doNotOptimizeAway(r);
-    });
-
-    bench.run("double compile-time pairdup-high [orig]", [&] {
-        auto r = swizzle_const_orig<2, 2, 3, 3>(v4);
-        ankerl::nanobench::doNotOptimizeAway(r);
-    });
-    bench.run("double compile-time pairdup-high [opt]", [&] {
-        auto r = swizzle_const_opt<2, 2, 3, 3>(v4);
         ankerl::nanobench::doNotOptimizeAway(r);
     });
 
