@@ -28,45 +28,65 @@ static inline __m256 swizzle_const_orig(__m256 self) noexcept {
     return _mm256_blend_ps(r0, r1, blend_mask);
 }
 
-// Optimized
+// Optimized compile-time swizzle for float (8 lanes)
+// Optimized compile-time swizzle for float (8 lanes)
 template <uint32_t V0, uint32_t V1, uint32_t V2, uint32_t V3, uint32_t V4, uint32_t V5, uint32_t V6, uint32_t V7>
 static inline __m256 swizzle_const_opt(__m256 self) noexcept {
+    // 1) identity?
     constexpr bool is_identity = (V0 == 0 && V1 == 1 && V2 == 2 && V3 == 3 && V4 == 4 && V5 == 5 && V6 == 6 && V7 == 7);
-    constexpr bool is_reverse = (V0 == 3 && V1 == 2 && V2 == 1 && V3 == 0 && V4 == 7 && V5 == 6 && V6 == 5 && V7 == 4);
-    constexpr bool is_dup_lo = (V0 == 0 && V1 == 1 && V2 == 2 && V3 == 3 && V4 == 0 && V5 == 1 && V6 == 2 && V7 == 3);
-    constexpr bool is_dup_hi = (V0 == 4 && V1 == 5 && V2 == 6 && V3 == 7 && V4 == 4 && V5 == 5 && V6 == 6 && V7 == 7);
-    constexpr bool is_pairdup_lo = (V0 == 0 && V1 == 0 && V2 == 1 && V3 == 1);
-    constexpr bool is_pairdup_hi = (V4 == 2 && V5 == 2 && V6 == 3 && V7 == 3);
-    constexpr bool is_pairdup = is_pairdup_lo && is_pairdup_hi;
 
-    XSIMD_IF_CONSTEXPR (is_identity) {
-        return self;
-    } else XSIMD_IF_CONSTEXPR (is_reverse) {
-        __m128 lo = _mm256_castps256_ps128(self);
-        __m128 hi = _mm256_extractf128_ps(self, 1);
-        __m128 lo_rev = _mm_shuffle_ps(lo, lo, _MM_SHUFFLE(0, 1, 2, 3));
-        __m128 hi_rev = _mm_shuffle_ps(hi, hi, _MM_SHUFFLE(0, 1, 2, 3));
-        return _mm256_set_m128(lo_rev, hi_rev);
-    } else XSIMD_IF_CONSTEXPR (is_dup_lo) {
-        __m128 lo = _mm256_castps256_ps128(self);
-        return _mm256_set_m128(lo, lo);
-    } else XSIMD_IF_CONSTEXPR (is_dup_hi) {
-        __m128 hi = _mm256_extractf128_ps(self, 1);
-        return _mm256_set_m128(hi, hi);
-    } else XSIMD_IF_CONSTEXPR (is_pairdup) {
-        __m256i idx = _mm256_setr_epi32(V0, V0, V2, V2, V4, V4, V6, V6);
+    // 2) all-different mask → full 8-lane permute
+    constexpr uint32_t bitmask = (1u << (V0 & 7)) | (1u << (V1 & 7)) | (1u << (V2 & 7)) | (1u << (V3 & 7)) |
+                                 (1u << (V4 & 7)) | (1u << (V5 & 7)) | (1u << (V6 & 7)) | (1u << (V7 & 7));
+    constexpr bool is_all_different = (bitmask == 0xFFu);
+
+    // 3) duplicate-low half?
+    constexpr bool is_dup_lo = ((V0 < 4 && V1 < 4 && V2 < 4 && V3 < 4) && V4 == V0 && V5 == V1 && V6 == V2 && V7 == V3);
+
+    // 4) duplicate-high half?
+    constexpr bool is_dup_hi = (V0 >= 4 && V0 <= 7 && V1 >= 4 && V1 <= 7 && V2 >= 4 && V2 <= 7 && V3 >= 4 && V3 <= 7 &&
+                                V4 == V0 && V5 == V1 && V6 == V2 && V7 == V3);
+
+    XSIMD_IF_CONSTEXPR(is_identity) { return self; }
+    else XSIMD_IF_CONSTEXPR(is_all_different) {
+        // one-shot 8-lane permute
+        const __m256i idx = _mm256_setr_epi32(V0, V1, V2, V3, V4, V5, V6, V7);
         return _mm256_permutevar8x32_ps(self, idx);
-    } else {
+    }
+    else XSIMD_IF_CONSTEXPR(is_dup_lo) {
         __m128 lo = _mm256_castps256_ps128(self);
+        // if lo is not identity, we can permute it before duplicating
+        XSIMD_IF_CONSTEXPR(V0 != 0 || V1 != 1 || V2 != 2 || V3 != 3) {
+            constexpr int imm = ((V3 & 3) << 6) | ((V2 & 3) << 4) | ((V1 & 3) << 2) | ((V0 & 3) << 0);
+            lo = _mm_permute_ps(lo, imm);
+        }
+        return _mm256_set_m128(lo, lo);
+    }
+    else XSIMD_IF_CONSTEXPR(is_dup_hi) {
         __m128 hi = _mm256_extractf128_ps(self, 1);
+        XSIMD_IF_CONSTEXPR(V0 != 4 || V1 != 5 || V2 != 6 || V3 != 7) {
+            constexpr int imm = ((V3 & 3) << 6) | ((V2 & 3) << 4) | ((V1 & 3) << 2) | ((V0 & 3) << 0);
+            hi = _mm_permute_ps(hi, imm);
+        }
+        return _mm256_set_m128(hi, hi);
+    }
+    else {
+        __m256 hi = _mm256_castps128_ps256(_mm256_extractf128_ps(self, 1));
+        __m256 hi_hi = _mm256_insertf128_ps(self, _mm256_castps256_ps128(hi), 0);
+        __m256 low = _mm256_castps128_ps256(_mm256_castps256_ps128(self));
+        __m256 low_lo = _mm256_insertf128_ps(self, _mm256_castps256_ps128(low), 1);
 
-        constexpr int lo_im = _MM_SHUFFLE(int(V3 % 4), int(V2 % 4), int(V1 % 4), int(V0 % 4));
-        constexpr int hi_im = _MM_SHUFFLE(int(V7 % 4), int(V6 % 4), int(V5 % 4), int(V4 % 4));
+        constexpr int idx[8] = {int(V0 % 4), int(V1 % 4), int(V2 % 4), int(V3 % 4),
+                                int(V4 % 4), int(V5 % 4), int(V6 % 4), int(V7 % 4)};
+        __m256i ctrl = _mm256_setr_epi32(idx[0], idx[1], idx[2], idx[3], idx[4], idx[5], idx[6], idx[7]);
 
-        __m128 lo_s = _mm_shuffle_ps(lo, lo, lo_im);
-        __m128 hi_s = _mm_shuffle_ps(hi, hi, hi_im);
+        __m256 r0 = _mm256_permutevar_ps(low_lo, ctrl);
+        __m256 r1 = _mm256_permutevar_ps(hi_hi, ctrl);
 
-        return _mm256_set_m128(hi_s, lo_s);
+        constexpr int blend_mask = ((V0 >= 4) << 0) | ((V1 >= 4) << 1) | ((V2 >= 4) << 2) | ((V3 >= 4) << 3) |
+                                   ((V4 >= 4) << 4) | ((V5 >= 4) << 5) | ((V6 >= 4) << 6) | ((V7 >= 4) << 7);
+
+        return _mm256_blend_ps(r0, r1, blend_mask);
     }
 }
 
@@ -93,37 +113,22 @@ static inline __m256d swizzle_const_orig(__m256d self) noexcept {
 }
 
 // Optimized
+
+// Optimized compile‐time swizzle for double (4 lanes)
 template <uint64_t V0, uint64_t V1, uint64_t V2, uint64_t V3>
 static inline __m256d swizzle_const_opt(__m256d self) noexcept {
-    constexpr bool is_dup_re = (V0 % 2 == 0 && V1 % 2 == 0 && V2 % 2 == 0 && V3 % 2 == 0);
-    constexpr bool is_dup_im = (V0 % 2 == 1 && V1 % 2 == 1 && V2 % 2 == 1 && V3 % 2 == 1);
-    constexpr bool is_swap = (V0 % 2 == 1 && V1 % 2 == 0 && V2 % 2 == 1 && V3 % 2 == 0);
     constexpr bool is_identity = (V0 == 0 && V1 == 1 && V2 == 2 && V3 == 3);
-    constexpr bool is_pairdup = (V0 == V1 && V2 == V3);
+    constexpr bool can_use_pd = (V0 < 2 && V1 < 2 && V2 >= 2 && V2 < 4 && V3 >= 2 && V3 < 4);
 
-    XSIMD_IF_CONSTEXPR (is_identity) {
-        return self;
-    } else XSIMD_IF_CONSTEXPR (is_dup_re) {
-        return _mm256_permute_pd(self, 0x0);
-    } else XSIMD_IF_CONSTEXPR (is_dup_im) {
-        return _mm256_permute_pd(self, 0xF);
-    } else XSIMD_IF_CONSTEXPR (is_swap) {
-        return _mm256_permute_pd(self, 0x5);
-    } else XSIMD_IF_CONSTEXPR (is_pairdup) {
-        constexpr int permute_mask = ((V2 & 3) << 2) | (V0 & 3);
-        return _mm256_permute4x64_pd(self, permute_mask);
-    } else {
-        __m128d lo = _mm256_castpd256_pd128(self);
-        __m128d hi = _mm256_extractf128_pd(self, 1);
-
-        constexpr int lo_ctrl = ((V0 % 2) << 0) | ((V1 % 2) << 1);
-        constexpr int hi_ctrl = ((V2 % 2) << 0) | ((V3 % 2) << 1);
-
-        __m128d lo_s = _mm_shuffle_pd(lo, lo, lo_ctrl);
-        __m128d hi_s = _mm_shuffle_pd(hi, hi, hi_ctrl);
-
-        return _mm256_set_m128d(hi_s, lo_s);
+    XSIMD_IF_CONSTEXPR(is_identity) { return self; }
+    XSIMD_IF_CONSTEXPR(can_use_pd) {
+        // build the 4-bit immediate: bit i = 1 if you pick the upper element of pair i
+        constexpr int mask = ((V0 & 1) << 0) | ((V1 & 1) << 1) | ((V2 & 1) << 2) | ((V3 & 1) << 3);
+        return _mm256_permute_pd(self, mask);
     }
+    // fallback to full 4-element permute
+    constexpr int imm = ((V3 & 3) << 6) | ((V2 & 3) << 4) | ((V1 & 3) << 2) | ((V0 & 3) << 0);
+    return _mm256_permute4x64_pd(self, imm);
 }
 
 // --- Run-time mask, float ---
@@ -209,184 +214,143 @@ inline void store4d(double* p, __m256d v) { _mm256_storeu_pd(p, v); }
 // Almost‐equal via bit‐wise compare
 template <typename T>
 bool almost_equal(T a, T b) {
-    return std::memcmp(&a, &b, sizeof(a)) == 0;
+    if (std::memcmp(&a, &b, sizeof(a)) != 0) {
+        std::cerr << "Mismatch: " << a << " vs " << b << std::endl;
+        return false;
+    }
+    return true;
+}
+template <typename T, int N>
+void print_array(const T (&arr)[N], const char* label) {
+    std::cout << label << " ";
+    std::cout << "[";
+    for (int i = 0; i < N; ++i) {
+        std::cout << arr[i] << (i + 1 < N ? ", " : "");
+    }
+    std::cout << "]\n";
+}
+void check4d(const char* name, __m256d orig, __m256d opt) {
+    double a[4], b[4];
+    store4d(a, orig);
+    store4d(b, opt);
+    std::cout << name << ":\n";
+    print_array(a, "  orig:");
+    print_array(b, "   opt:");
+    for (int i = 0; i < 4; ++i) {
+        assert(almost_equal(a[i], b[i]));
+    }
+    std::cout << "\n";
 }
 
-// Correctness check
+void check8f(const char* name, __m256 orig, __m256 opt) {
+    float a[8], b[8];
+    store8f(a, orig);
+    store8f(b, opt);
+    std::cout << name << ":\n";
+    print_array(a, "  orig:");
+    print_array(b, "   opt:");
+    for (int i = 0; i < 8; ++i) {
+        assert(almost_equal(a[i], b[i]));
+    }
+    std::cout << "\n";
+}
+// --------------------------------------------------------
+// Revised test_correctness()
+// --------------------------------------------------------
 void test_correctness() {
-    alignas(32) float in8[8] = {0, 1, 2, 3, 4, 5, 6, 7}, out1[8], out2[8];
-    __m256 v8 = load8f(in8);
-    alignas(32) int32_t m8[8] = {7, 6, 5, 4, 3, 2, 1, 0};
-    __m256i mi8 = _mm256_load_si256((__m256i*)m8);
+    alignas(32) float in8[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+    alignas(32) double in4[4] = {0, 1, 2, 3};
 
-    alignas(32) double in4[4] = {0, 1, 2, 3}, outd1[4], outd2[4];
+    // print originals once
+    print_array(in8, "Input float vector : ");
+    std::cout << "\n";
+    print_array(in4, "Input double vector: ");
+    std::cout << "\n\n";
+
+    __m256 v8 = load8f(in8);
     __m256d v4 = load4d(in4);
-    alignas(32) int64_t m4[4] = {3, 2, 1, 0};
-    __m256i mi4 = _mm256_load_si256((__m256i*)m4);
 
     // CT‐float identity & reverse
-    {
-        auto o0 = swizzle_const_orig<0, 1, 2, 3, 4, 5, 6, 7>(v8);
-        auto o1 = swizzle_const_opt<0, 1, 2, 3, 4, 5, 6, 7>(v8);
-        store8f(out1, o0);
-        store8f(out2, o1);
-        for (int i = 0; i < 8; ++i) assert(almost_equal(out1[i], out2[i]));
-
-        o0 = swizzle_const_orig<7, 6, 5, 4, 3, 2, 1, 0>(v8);
-        o1 = swizzle_const_opt<7, 6, 5, 4, 3, 2, 1, 0>(v8);
-        store8f(out1, o0);
-        store8f(out2, o1);
-        for (int i = 0; i < 8; ++i) assert(almost_equal(out1[i], out2[i]));
-    }
+    check8f("CT-float identity", swizzle_const_orig<0, 1, 2, 3, 4, 5, 6, 7>(v8),
+            swizzle_const_opt<0, 1, 2, 3, 4, 5, 6, 7>(v8));
+    check8f("CT-float reverse", swizzle_const_orig<7, 6, 5, 4, 3, 2, 1, 0>(v8),
+            swizzle_const_opt<7, 6, 5, 4, 3, 2, 1, 0>(v8));
+    std::cout << "\n";
 
     // CT‐double identity & reverse
-    {
-        auto d0 = swizzle_const_orig<0, 1, 2, 3>(v4);
-        auto d1 = swizzle_const_opt<0, 1, 2, 3>(v4);
-        store4d(outd1, d0);
-        store4d(outd2, d1);
-        for (int i = 0; i < 4; ++i) assert(almost_equal(outd1[i], outd2[i]));
-
-        d0 = swizzle_const_orig<3, 2, 1, 0>(v4);
-        d1 = swizzle_const_opt<3, 2, 1, 0>(v4);
-        store4d(outd1, d0);
-        store4d(outd2, d1);
-        for (int i = 0; i < 4; ++i) assert(almost_equal(outd1[i], outd2[i]));
-    }
+    check4d("CT-double identity", swizzle_const_orig<0, 1, 2, 3>(v4), swizzle_const_opt<0, 1, 2, 3>(v4));
+    check4d("CT-double reverse", swizzle_const_orig<3, 2, 1, 0>(v4), swizzle_const_opt<3, 2, 1, 0>(v4));
+    std::cout << "\n";
 
     // RT‐float identity & reverse
-    {
-        auto r0 = swizzle_var_orig(v8, mi8 /*reverse*/);
-        auto r1 = swizzle_var_opt(v8, mi8);
-        store8f(out1, r0);
-        store8f(out2, r1);
-        for (int i = 0; i < 8; ++i) assert(almost_equal(out1[i], out2[i]));
-
-        // identity mask
-        alignas(32) int32_t id8[8] = {0, 1, 2, 3, 4, 5, 6, 7};
-        __m256i idi = _mm256_load_si256((__m256i*)id8);
-        r0 = swizzle_var_orig(v8, idi);
-        r1 = swizzle_var_opt(v8, idi);
-        store8f(out1, r0);
-        store8f(out2, r1);
-        for (int i = 0; i < 8; ++i) assert(almost_equal(out1[i], out2[i]));
-    }
+    alignas(32) int32_t m8_rev[8] = {7, 6, 5, 4, 3, 2, 1, 0};
+    __m256i mi8_rev = _mm256_load_si256((__m256i*)m8_rev);
+    check8f("RT-float reverse", swizzle_var_orig(v8, mi8_rev), swizzle_var_opt(v8, mi8_rev));
+    alignas(32) int32_t m8_id[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+    __m256i mi8_id = _mm256_load_si256((__m256i*)m8_id);
+    check8f("RT-float identity", swizzle_var_orig(v8, mi8_id), swizzle_var_opt(v8, mi8_id));
+    std::cout << "\n";
 
     // RT‐double identity & reverse
-    {
-        auto R0 = swizzle_var_orig(v4, mi4);
-        auto R1 = swizzle_var_opt(v4, mi4);
-        store4d(outd1, R0);
-        store4d(outd2, R1);
-        for (int i = 0; i < 4; ++i) assert(almost_equal(outd1[i], outd2[i]));
-
-        alignas(32) int64_t id4[4] = {0, 1, 2, 3};
-        __m256i idi = _mm256_load_si256((__m256i*)id4);
-        R0 = swizzle_var_orig(v4, idi);
-        R1 = swizzle_var_opt(v4, idi);
-        store4d(outd1, R0);
-        store4d(outd2, R1);
-        for (int i = 0; i < 4; ++i) assert(almost_equal(outd1[i], outd2[i]));
-    }
-
-    std::cout << "correctness OK\n";
+    alignas(32) int64_t m4_rev[4] = {3, 2, 1, 0};
+    __m256i mi4_rev = _mm256_load_si256((__m256i*)m4_rev);
+    check4d("RT-double reverse", swizzle_var_orig(v4, mi4_rev), swizzle_var_opt(v4, mi4_rev));
+    alignas(32) int64_t m4_id[4] = {0, 1, 2, 3};
+    __m256i mi4_id = _mm256_load_si256((__m256i*)m4_id);
+    check4d("RT-double identity", swizzle_var_orig(v4, mi4_id), swizzle_var_opt(v4, mi4_id));
 }
 
 void test_special_pd_cases() {
     alignas(32) double data[4] = {1.0, 2.0, 3.0, 4.0};
+    print_array(data, "Input double vector:");
     __m256d v = load4d(data);
-    double o0[4], o1[4];
 
-    // duplicate real parts
-    auto r0 = swizzle_const_orig<0, 0, 2, 2>(v);
-    auto r1 = swizzle_const_opt<0, 0, 2, 2>(v);
-    store4d(o0, r0);
-    store4d(o1, r1);
-    for (int i = 0; i < 4; ++i) assert(almost_equal(o0[i], o1[i]));
+    check4d("duplicate real parts", swizzle_const_orig<0, 0, 2, 2>(v), swizzle_const_opt<0, 0, 2, 2>(v));
 
-    // duplicate imag parts
-    r0 = swizzle_const_orig<1, 1, 3, 3>(v);
-    r1 = swizzle_const_opt<1, 1, 3, 3>(v);
-    store4d(o0, r0);
-    store4d(o1, r1);
-    for (int i = 0; i < 4; ++i) assert(almost_equal(o0[i], o1[i]));
+    check4d("duplicate imag parts", swizzle_const_orig<1, 1, 3, 3>(v), swizzle_const_opt<1, 1, 3, 3>(v));
 
-    // swap real <-> imag
-    r0 = swizzle_const_orig<1, 0, 3, 2>(v);
-    r1 = swizzle_const_opt<1, 0, 3, 2>(v);
-    store4d(o0, r0);
-    store4d(o1, r1);
-    for (int i = 0; i < 4; ++i) assert(almost_equal(o0[i], o1[i]));
+    check4d("swap real<->imag", swizzle_const_orig<1, 0, 3, 2>(v), swizzle_const_opt<1, 0, 3, 2>(v));
 
-    // identity (baseline)
-    r0 = swizzle_const_orig<0, 1, 2, 3>(v);
-    r1 = swizzle_const_opt<0, 1, 2, 3>(v);
-    store4d(o0, r0);
-    store4d(o1, r1);
+    check4d("identity", swizzle_const_orig<0, 1, 2, 3>(v), swizzle_const_opt<0, 1, 2, 3>(v));
 
-    for (int i = 0; i < 4; ++i) assert(almost_equal(o0[i], o1[i]));
-    r0 = swizzle_const_orig<0, 0, 1, 1>(v);
-    r1 = swizzle_const_opt<0, 0, 1, 1>(v);
-    store4d(o0, r0);
-    store4d(o1, r1);
-    for (int i = 0; i < 4; ++i) assert(almost_equal(o0[i], o1[i]));
+    check4d("dup low pair", swizzle_const_orig<0, 0, 1, 1>(v), swizzle_const_opt<0, 0, 1, 1>(v));
 
-    // pairwise duplication: 2,2,3,3
-    r0 = swizzle_const_orig<2, 2, 3, 3>(v);
-    r1 = swizzle_const_opt<2, 2, 3, 3>(v);
-    store4d(o0, r0);
-    store4d(o1, r1);
-    for (int i = 0; i < 4; ++i) assert(almost_equal(o0[i], o1[i]));
-    std::cout << "special PD cases passed\n";
+    check4d("pairwise dup <2,2,3,3>", swizzle_const_orig<2, 2, 3, 3>(v), swizzle_const_opt<2, 2, 3, 3>(v));
+
+    check4d("generic fallback <0,2,2,0>", swizzle_const_orig<0, 2, 2, 0>(v), swizzle_const_opt<0, 2, 2, 0>(v));
+
+    std::cout << "special PD cases passed\n\n";
 }
 
 void test_special_ps_cases() {
     alignas(32) float in[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+    print_array(in, "Input float vector:");
     __m256 v = load8f(in);
-    float o0[8], o1[8];
 
-    // identity
-    auto r0 = swizzle_const_orig<0, 1, 2, 3, 4, 5, 6, 7>(v);
-    auto r1 = swizzle_const_opt<0, 1, 2, 3, 4, 5, 6, 7>(v);
-    store8f(o0, r0);
-    store8f(o1, r1);
-    for (int i = 0; i < 8; ++i) assert(almost_equal(o0[i], o1[i]));
+    check8f("identity", swizzle_const_orig<0, 1, 2, 3, 4, 5, 6, 7>(v), swizzle_const_opt<0, 1, 2, 3, 4, 5, 6, 7>(v));
 
-    // full reverse
-    r0 = swizzle_const_orig<3, 2, 1, 0, 7, 6, 5, 4>(v);
-    r1 = swizzle_const_opt<3, 2, 1, 0, 7, 6, 5, 4>(v);
-    store8f(o0, r0);
-    store8f(o1, r1);
-    for (int i = 0; i < 8; ++i) assert(almost_equal(o0[i], o1[i]));
+    check8f("full reverse", swizzle_const_orig<3, 2, 1, 0, 7, 6, 5, 4>(v),
+            swizzle_const_opt<3, 2, 1, 0, 7, 6, 5, 4>(v));
 
-    // duplicate low
-    r0 = swizzle_const_orig<0, 1, 2, 3, 0, 1, 2, 3>(v);
-    r1 = swizzle_const_opt<0, 1, 2, 3, 0, 1, 2, 3>(v);
-    store8f(o0, r0);
-    store8f(o1, r1);
-    for (int i = 0; i < 8; ++i) assert(almost_equal(o0[i], o1[i]));
+    check8f("duplicate low half", swizzle_const_orig<0, 1, 2, 3, 0, 1, 2, 3>(v),
+            swizzle_const_opt<0, 1, 2, 3, 0, 1, 2, 3>(v));
 
-    // duplicate high
-    r0 = swizzle_const_orig<4, 5, 6, 7, 4, 5, 6, 7>(v);
-    r1 = swizzle_const_opt<4, 5, 6, 7, 4, 5, 6, 7>(v);
-    store8f(o0, r0);
-    store8f(o1, r1);
-    for (int i = 0; i < 8; ++i) assert(almost_equal(o0[i], o1[i]));
+    check8f("duplicate high half", swizzle_const_orig<4, 5, 6, 7, 4, 5, 6, 7>(v),
+            swizzle_const_opt<4, 5, 6, 7, 4, 5, 6, 7>(v));
 
-    r0 = swizzle_const_orig<0, 0, 1, 1, 2, 2, 3, 3>(v);
-    r1 = swizzle_const_opt<0, 0, 1, 1, 2, 2, 3, 3>(v);
-    store8f(o0, r0);
-    store8f(o1, r1);
-    for (int i = 0; i < 8; ++i) assert(almost_equal(o0[i], o1[i]));
+    check8f("duplicate and permute low half", swizzle_const_orig<2, 1, 0, 3, 2, 1, 0, 3>(v),
+            swizzle_const_opt<2, 1, 0, 3, 2, 1, 0, 3>(v));
 
-    // 4,4,5,5,6,6,7,7
-    r0 = swizzle_const_orig<4, 4, 5, 5, 6, 6, 7, 7>(v);
-    r1 = swizzle_const_opt<4, 4, 5, 5, 6, 6, 7, 7>(v);
-    store8f(o0, r0);
-    store8f(o1, r1);
-    for (int i = 0; i < 8; ++i) assert(almost_equal(o0[i], o1[i]));
+    check8f("duplicate and permute high half", swizzle_const_orig<7, 5, 6, 4, 7, 5, 6, 4>(v),
+            swizzle_const_opt<7, 5, 6, 4, 7, 5, 6, 4>(v));
 
-    std::cout << "special PS cases passed\n";
+    check8f("pairwise dup <0,0,1,1,2,2,3,3>", swizzle_const_orig<0, 0, 1, 1, 2, 2, 3, 3>(v),
+            swizzle_const_opt<0, 0, 1, 1, 2, 2, 3, 3>(v));
+
+    check8f("pairwise dup <4,4,5,5,6,6,7,7>", swizzle_const_orig<4, 4, 5, 5, 6, 6, 7, 7>(v),
+            swizzle_const_opt<4, 4, 5, 5, 6, 6, 7, 7>(v));
+
+    std::cout << "special PS cases passed\n\n";
 }
 
 // Benchmark
