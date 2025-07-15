@@ -1,3 +1,4 @@
+#include <immintrin.h>  // for AVX-512 intrinsics
 #include <nanobench.h>
 
 #include <array>
@@ -102,7 +103,7 @@ void benchmark_fma_add_sub(std::size_t N, vector_t& a, vector_t& b, vector_t& ou
         const std::size_t D = N * 2;           // total doubles
         std::size_t i = 0;
 #pragma GCC ivdep
-        for (; i + 3 < D; i += 4) {  // 4 doubles = 2 complex<double>
+        for (; i + S - 1 < D; i += S) {  // 4 doubles = 2 complex<double>
             // 1. load [re0,im0,re1,im1]
             const auto va = pack::load_aligned(ap + i);
             const auto vb = pack::load_aligned(bp + i);
@@ -145,21 +146,49 @@ void benchmark_intrinsics(std::size_t N, vector_t& a, vector_t& b, vector_t& out
 
             const auto cross = _mm256_mul_pd(va_sw, vb_im);  // ai*bi / ar*bi
             const auto result = _mm256_fmaddsub_pd(vb_re, va, cross);
-            //  even lanes: vb_re*va - cross  → real
-            //  odd  lanes: vb_re*va + cross  → imag
-
             _mm256_store_pd(op + i, result);
         }
         ankerl::nanobench::doNotOptimizeAway(out);
     });
 }
 
+#ifdef __AVX512F__
+void benchmark_avx512(std::size_t N, const vector_t& a, const vector_t& b, vector_t& out,
+                      ankerl::nanobench::Bench& bench) {
+    bench.run("avx512 complex mul N=" + std::to_string(N), [&] {
+        const double* ap = reinterpret_cast<const double*>(a.data());
+        const double* bp = reinterpret_cast<const double*>(b.data());
+        double* op = reinterpret_cast<double*>(out.data());
+        const std::size_t D = N * 2;  // total doubles
+#pragma GCC ivdep
+        for (std::size_t i = 0; i + 7 < D; i += 8) {
+            const __m512d va = _mm512_load_pd(ap + i);  // [ar0 ai0 ar1 ai1 ar2 ai2 ar3 ai3]
+            const __m512d vb = _mm512_load_pd(bp + i);  // [br0 bi0 br1 bi1 br2 bi2 br3 bi3]
+
+            // Duplicate real and imag parts of b
+            const __m512d vb_re = _mm512_permute_pd(vb, 0x00);  // [br0 br0 br1 br1 ...]
+            const __m512d vb_im = _mm512_permute_pd(vb, 0xFF);  // [bi0 bi0 bi1 bi1 ...]
+
+            // Swap a: ar↔ai within each pair
+            const __m512d va_sw = _mm512_permute_pd(va, 0x55);  // 0xAA = 10101010
+
+            // Complex multiply: (a * b) = [ar*br - ai*bi, ar*bi + ai*br]
+            const __m512d cross = _mm512_mul_pd(va_sw, vb_im);
+            const __m512d result = _mm512_fmaddsub_pd(vb_re, va, cross);  // correct sign mix
+
+            _mm512_store_pd(op + i, result);
+        }
+        ankerl::nanobench::doNotOptimizeAway(out);
+    });
+}
+#endif  // __AVX512F__
+
 int main() {
     volatile std::default_random_engine::result_type seed = 42;
     std::default_random_engine rng{seed};
     std::uniform_real_distribution<double> dist(0.0, 1.0);
     ankerl::nanobench::Bench bench;
-    bench.unit("mul").minEpochIterations(20000);
+    bench.unit("mul").minEpochIterations(10000);
     constexpr bool print = false;  // set to true to print results
     for (std::size_t N = 8; N <= 16384; N *= 2) {
         bench.batch(N);
@@ -196,6 +225,16 @@ int main() {
         if constexpr (print) {
             const auto sum = std::accumulate(out.begin(), out.end(), std::complex<double>(0.0, 0.0));
             std::cout << "N=" << N << " sum: (" << sum.real() << ", " << sum.imag() << ")" << std::endl;
+        }
+#ifdef __AVX512F__
+        benchmark_avx512(N, a, b, out, bench);
+#endif
+        if constexpr (print) {
+            const auto sum = std::accumulate(out.begin(), out.end(), std::complex<double>(0.0, 0.0));
+            std::cout << "N=" << N << " sum: (" << sum.real() << ", " << sum.imag() << ")" << std::endl;
+        }
+        if constexpr (print) {
+            if (N >= 16) break;
         }
     }
 
