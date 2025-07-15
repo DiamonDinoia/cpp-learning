@@ -1,5 +1,5 @@
 
-CPMAddPackage("gh:xtensor-stack/xsimd#master")
+CPMAddPackage("gh:DiamonDinoia/xsimd#improving-swizzle")
 CPMAddPackage("gh:martinus/nanobench@4.3.11")
 
 add_compile_options(-march=native -ftree-vectorize -fcx-limited-range)

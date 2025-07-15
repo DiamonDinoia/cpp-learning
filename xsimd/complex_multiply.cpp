@@ -75,7 +75,6 @@ void benchmark_manual(std::size_t N, vector_t& a, vector_t& b, vector_t& out, an
 void benchmark_fma_add_sub(std::size_t N, vector_t& a, vector_t& b, vector_t& out, ankerl::nanobench::Bench& bench) {
     using pack = xsimd::batch<double>;  // 4 doubles on AVX2
     using arch = pack::arch_type;
-    constexpr std::size_t S = pack::size;  // 4
 
     // --- compile-time helpers -------------------------------------------------
     struct swap_pair {
@@ -96,23 +95,30 @@ void benchmark_fma_add_sub(std::size_t N, vector_t& a, vector_t& b, vector_t& ou
     constexpr auto imag_idx = xsimd::make_batch_constant<xsimd::as_unsigned_integer_t<double>, dup_imag, arch>();
 
     bench.run("xsimd fmas N=" + std::to_string(N), [&] {
+        auto ap = reinterpret_cast<const double*>(a.data());
+        auto bp = reinterpret_cast<const double*>(b.data());
+        auto op = reinterpret_cast<double*>(out.data());
+        constexpr std::size_t S = pack::size;  // 4
+        const std::size_t D = N * 2;           // total doubles
+        std::size_t i = 0;
 #pragma GCC ivdep
-        for (std::size_t i = 0; i < 2 * N; i += S) {
+        for (; i + 3 < D; i += 4) {  // 4 doubles = 2 complex<double>
             // 1. load [re0,im0,re1,im1]
-            pack va = pack::load_aligned(reinterpret_cast<const double*>(a.data()) + i);
-            pack vb = pack::load_aligned(reinterpret_cast<const double*>(b.data()) + i);
+            const auto va = pack::load_aligned(ap + i);
+            const auto vb = pack::load_aligned(bp + i);
 
             // 2. duplicate real & imag parts of b
-            pack vb_re = xsimd::swizzle(vb, real_idx);  // [br0,br0,br1,br1]
-            pack vb_im = xsimd::swizzle(vb, imag_idx);  // [bi0,bi0,bi1,bi1]
+            const auto vb_im = xsimd::swizzle(vb, imag_idx);  // [bi0,bi0,bi1,bi1]
 
             // 3. cross = (ai * bi, ar * bi, …)   using one swizzle on a
-            pack va_sw = xsimd::swizzle(va, swap_idx);
+            const auto va_sw = xsimd::swizzle(va, swap_idx);
+            const auto cross = va_sw * vb_im;
 
-            pack result = xsimd::fmas(vb_re, va, va_sw * vb_im);
+            const auto vb_re = xsimd::swizzle(vb, real_idx);  // [br0,br0,br1,br1]
 
-            // pack result = xsimd::bit_cast<pack>(res_d);
-            result.store_aligned(reinterpret_cast<double*>(out.data()) + i);
+            const auto result = xsimd::fmas(vb_re, va, cross);
+
+            result.store_aligned(op + i);
         }
         ankerl::nanobench::doNotOptimizeAway(out);
     });
@@ -128,16 +134,17 @@ void benchmark_intrinsics(std::size_t N, vector_t& a, vector_t& b, vector_t& out
 
         std::size_t i = 0;
 #pragma GCC ivdep
-        for (; i + 3 < D; i += 4) {               // 4 doubles = 2 complex<double>
-            __m256d va = _mm256_load_pd(ap + i);  // [ar0 ai0 ar1 ai1]
-            __m256d vb = _mm256_load_pd(bp + i);  // [br0 bi0 br1 bi1]
+        for (; i + 3 < D; i += 4) {  // 4 doubles = 2 complex<double>
 
-            __m256d vb_re = _mm256_permute_pd(vb, 0x0);  // duplicate re parts
-            __m256d vb_im = _mm256_permute_pd(vb, 0xF);  // duplicate im parts
-            __m256d va_sw = _mm256_permute_pd(va, 0x5);  // swap   ar↔ai
+            const auto va = _mm256_load_pd(ap + i);  // [ar0 ai0 ar1 ai1]
+            const auto vb = _mm256_load_pd(bp + i);  // [br0 bi0 br1 bi1]
 
-            __m256d cross = _mm256_mul_pd(va_sw, vb_im);  // ai*bi / ar*bi
-            __m256d result = _mm256_fmaddsub_pd(vb_re, va, cross);
+            const auto vb_re = _mm256_permute_pd(vb, 0x0);  // duplicate re parts
+            const auto vb_im = _mm256_permute_pd(vb, 0xF);  // duplicate im parts
+            const auto va_sw = _mm256_permute_pd(va, 0x5);  // swap   ar↔ai
+
+            const auto cross = _mm256_mul_pd(va_sw, vb_im);  // ai*bi / ar*bi
+            const auto result = _mm256_fmaddsub_pd(vb_re, va, cross);
             //  even lanes: vb_re*va - cross  → real
             //  odd  lanes: vb_re*va + cross  → imag
 
