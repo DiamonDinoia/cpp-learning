@@ -1,7 +1,7 @@
 #include <immintrin.h>  // for AVX-512 intrinsics
 #include <nanobench.h>
 
-#include <array>
+#include <chrono>
 #include <complex>
 #include <iostream>
 #include <random>
@@ -184,11 +184,12 @@ void benchmark_avx512(std::size_t N, const vector_t& a, const vector_t& b, vecto
 #endif  // __AVX512F__
 
 int main() {
+    using std::literals::chrono_literals::operator ""ms;
     volatile std::default_random_engine::result_type seed = 42;
     std::default_random_engine rng{seed};
     std::uniform_real_distribution<double> dist(0.0, 1.0);
     ankerl::nanobench::Bench bench;
-    bench.unit("mul").minEpochIterations(10000);
+    bench.unit("mul").minEpochTime(50ms);
     constexpr bool print = false;  // set to true to print results
     for (std::size_t N = 8; N <= 16384; N *= 2) {
         bench.batch(N);
