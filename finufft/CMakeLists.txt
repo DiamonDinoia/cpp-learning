@@ -1,3 +1,10 @@
+include(CheckLanguage)
+check_language(CUDA)
+
+if(NOT CMAKE_CUDA_COMPILER)
+    message(FATAL_ERROR "CUDA compiler not found. Enable CPP_LEARNING_ENABLE_FINUFFT only when a CUDA toolchain is available.")
+endif()
+
 enable_language(CUDA)
 
 include(FetchContent)

@@ -8,6 +8,8 @@ set(DCMAKE_RULE_MESSAGES OFF)
 
 set(CMAKE_CXX_STANDARD 20)
 
+option(CPP_LEARNING_ENABLE_FINUFFT "Build CUDA-dependent FINUFFT example" OFF)
+
 # version of the libraries to be used
 set(EIGEN_DOWNLOAD_VERSION 3.4.0)
 set(HIGHWAY_DOWNLOAD_VERSION 1.2.0)
@@ -36,6 +38,9 @@ add_subdirectory(compilation-define-test)
 add_subdirectory(sys-calls)
 add_subdirectory(cache-latency)
 add_subdirectory(eigen-experiments)
-add_subdirectory(finufft)
+if(CPP_LEARNING_ENABLE_FINUFFT)
+    add_subdirectory(finufft)
+endif()
 add_subdirectory(class-experiments)
+add_subdirectory(kernelgen)
 add_subdirectory(xsimd)
